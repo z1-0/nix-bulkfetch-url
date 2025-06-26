@@ -1,0 +1,14 @@
+*.coverprofile
+*.dll
+*.dylib
+*.exe
+*.exe~
+*.out
+*.so
+*.test
+.direnv
+.env
+coverage.*
+go.work
+go.work.sum
+profile.cov

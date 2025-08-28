@@ -1,106 +1,118 @@
+<!-- prettier-ignore -->
 # nix-bulkfetch-url
 
-A concurrent replacement for `nix-prefetch-url` that avoids Nix store locks.
+Download files from URLs and print their hashes. Does not touch the Nix store. Downloads run in parallel.
 
-## Why?
+## Features
 
-`nix-prefetch-url` writes to the Nix store during download, causing lock contention when running concurrently. This tool solves it by:
-
-1. **Downloading/unpacking with Go** - no Nix store writes
-2. **Hashing with `nix-hash`** - compatible output
-3. **Concurrent worker pool** - efficient batch processing
+- Concurrent with configurable worker pool (default: 16)
+- Archive unpacking: supports `.tar.gz` and `.zip`, computes NAR hashes via `nix-hash`
+- Retry with exponential backoff (3 attempts by default)
+- Fail-fast mode to abort on first error
+- Zero dependencies: stdlib only, builds as a single static binary
 
 ## Install
 
+Run directly without installing:
+
 ```bash
-go build -o nix-bulkfetch-url .
+nix run github:z1-0/nix-bulkfetch-url
+```
+
+Or install permanently:
+
+```bash
+nix profile install github:z1-0/nix-bulkfetch-url
+```
+
+### As a flake input
+
+Add to your flake:
+
+```nix
+inputs.nix-bulkfetch-url.url = "github:z1-0/nix-bulkfetch-url";
+```
+
+**NixOS system-wide** (in `configuration.nix`):
+
+```nix
+environment.systemPackages = [
+  inputs.nix-bulkfetch-url.packages.${pkgs.system}.default
+];
+```
+
+**Home Manager** (in `home.nix`):
+
+```nix
+home.packages = [
+  inputs.nix-bulkfetch-url.packages.${pkgs.system}.default
+];
 ```
 
 ## Usage
 
+Feed URLs via stdin, one per line. Lines starting with `#` and empty lines are ignored.
+
 ```bash
-# Read URLs from stdin
-cat urls.txt | nix-bulkfetch-url
-
-# Pipeline
-grep -r "fetchurl" . | awk '{print $2}' | nix-bulkfetch-url
-
-# Unpack mode (compute NAR hash of extracted contents)
-cat urls.txt | nix-bulkfetch-url --unpack
-
-# JSON output
-cat urls.txt | nix-bulkfetch-url --json
-
-# Custom concurrency
-cat urls.txt | nix-bulkfetch-url -j 32
+echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 ```
 
-## Flags
+### Flags
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-j` | 16 | Number of concurrent workers |
-| `--type` | sha256 | Hash algorithm: md5, sha1, sha256, sha512, blake3 |
-| `--unpack` | false | Unpack archive and compute NAR hash |
-| `--json` | false | Output JSON format |
-| `--timeout` | 300 | Download timeout in seconds |
-| `--fail-fast` | false | Exit on first error |
+| Flag         | Default  | Description                                                 |
+| ------------ | -------- | ----------------------------------------------------------- |
+| `-j`         | `16`     | Number of concurrent workers                                |
+| `-type`      | `sha256` | Hash algorithm: `md5`, `sha1`, `sha256`, `sha512`, `blake3` |
+| `-unpack`    | `false`  | Unpack archive and compute NAR hash                         |
+| `-json`      | `false`  | Output JSON format                                          |
+| `-timeout`   | `300`    | Download timeout in seconds                                 |
+| `-fail-fast` | `false`  | Exit on first error                                         |
 
-## Input Format
+### Exit codes
 
-One URL per line, supports empty lines and `#` comments:
+| Code | Meaning                          |
+| ---- | -------------------------------- |
+| `0`  | All URLs succeeded               |
+| `1`  | Some URLs failed, some succeeded |
+| `2`  | No URLs succeeded (or no input)  |
 
-```
-# Nix source
-https://github.com/NixOS/nix/archive/refs/tags/2.19.2.tar.gz
-https://github.com/NixOS/nixpkgs/archive/refs/tags/23.11.tar.gz
+## Examples
 
-# Other packages
-https://example.com/package-1.0.tar.gz
-```
+### Hash a single URL
 
-## Output Format
-
-### Text mode (default)
-
-One hash per line:
-
-```
-0h2v8nd26brmrahfy7n5h6rqck0cnadb7y1z163s0sqrcz6k9yla
-1878hsr34654xs9a3db57b6jqmxh1jmaplsd8c8hxyypx1s0m6mw
+```bash
+echo "https://github.com/user/repo/archive/v1.0.0.tar.gz" | nix-bulkfetch-url
 ```
 
-### JSON mode
+### Hash multiple URLs from a file
 
-```json
-[
-  {"url": "https://...", "hash": "sha256-xxx"},
-  {"url": "https://...", "error": "download failed"}
-]
+```bash
+cat urls.txt | nix-bulkfetch-url -j 8 -json
 ```
 
-## Exit Codes
+### Unpack and compute NAR hash
 
-- `0`: All succeeded
-- `1`: Partial failure
-- `2`: All failed
+This downloads each archive, extracts it, and runs `nix-hash --type sha256 --base32` on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
 
-## Performance
+```bash
+cat urls.txt | nix-bulkfetch-url -unpack
+```
 
-- Default 16 concurrent workers
-- Each worker handles: download -> unpack -> hash -> cleanup
-- Retry: 3 attempts with exponential backoff (1s, 2s, 4s)
+### Pipe URLs from a script
 
-## Dependencies
+```bash
+grep -oP 'https://[^\s"]+\.tar\.gz' packages.nix | nix-bulkfetch-url -type blake3
+```
 
-- Go 1.21+
-- `nix-hash` command (from Nix)
+### JSON output for scripting
 
-## Comparison with nix-prefetch-url
+```bash
+cat urls.txt | nix-bulkfetch-url -json | jq '.[] | select(.error == null)'
+```
 
-| Feature | nix-prefetch-url | nix-bulkfetch-url |
-|---------|------------------|-------------------|
-| Concurrent | No | Yes (worker pool) |
-| Batch | No | Yes (stdin) |
-| Nix store | Writes | Does not write |
-| Hash | Compatible | Compatible |
+## How it works
+
+1. Reads URLs from stdin
+2. Downloads them concurrently using a pool of N workers
+3. For each URL: fetches to a temp directory, unpacks if `-unpack` is set, then hashes with `nix-hash`
+4. Prints one hash per line (or a JSON array with `-json`)

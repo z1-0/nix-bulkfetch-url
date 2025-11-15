@@ -15,6 +15,7 @@ import (
 var (
 	workers  = flag.Int("j", 16, "number of concurrent workers")
 	hashType = flag.String("type", "sha256", "hash algorithm: md5, sha1, sha256, sha512, blake3")
+	format   = flag.String("format", "sri", "hash output format: base16, base32, base64, sri")
 	doUnpack = flag.Bool("unpack", false, "unpack archive and compute NAR hash")
 	jsonOut  = flag.Bool("json", false, "output JSON format")
 	timeout  = flag.Int("timeout", 300, "download timeout in seconds")
@@ -74,6 +75,7 @@ func main() {
 	opts := Options{
 		Workers:  *workers,
 		HashType: *hashType,
+		Format:   *format,
 		Unpack:   *doUnpack,
 		Timeout:  *timeout,
 		Retries:  3,

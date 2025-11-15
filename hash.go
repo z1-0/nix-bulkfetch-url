@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-func nixHash(hashType, path string, flat bool) (string, error) {
-	args := []string{"--type", hashType, "--base32"}
+func nixHash(hashType, format, path string, flat bool) (string, error) {
+	args := []string{"--type", hashType, "--" + format}
 	if flat {
 		args = append(args, "--flat")
 	}

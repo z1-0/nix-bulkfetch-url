@@ -12,6 +12,7 @@ import (
 type Options struct {
 	Workers  int
 	HashType string
+	Format   string
 	Unpack   bool
 	Timeout  int
 	Retries  int
@@ -120,7 +121,7 @@ func tryFetch(ctx context.Context, url string, opts Options) (string, error) {
 		hashPath = findUnpackedDir(unpackDir)
 	}
 
-	hash, err := nixHash(opts.HashType, hashPath, !opts.Unpack)
+	hash, err := nixHash(opts.HashType, opts.Format, hashPath, !opts.Unpack)
 	if err != nil {
 		return "", fmt.Errorf("hashing: %w", err)
 	}

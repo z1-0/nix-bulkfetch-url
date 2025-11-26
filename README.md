@@ -59,14 +59,15 @@ echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 
 ### Flags
 
-| Flag         | Default  | Description                                                 |
-| ------------ | -------- | ----------------------------------------------------------- |
-| `-j`         | `16`     | Number of concurrent workers                                |
-| `-type`      | `sha256` | Hash algorithm: `md5`, `sha1`, `sha256`, `sha512`, `blake3` |
-| `-unpack`    | `false`  | Unpack archive and compute NAR hash                         |
-| `-json`      | `false`  | Output JSON format                                          |
-| `-timeout`   | `300`    | Download timeout in seconds                                 |
-| `-fail-fast` | `false`  | Exit on first error                                         |
+| Flag          | Default  | Description                                                 |
+| ------------- | -------- | ----------------------------------------------------------- |
+| `-j`          | `16`     | Number of concurrent workers                                |
+| `--type`      | `sha256` | Hash algorithm: `md5`, `sha1`, `sha256`, `sha512`, `blake3` |
+| `--format`    | `sri`    | Hash output format: `base16`, `base32`, `base64`, `sri`     |
+| `--unpack`    | `false`  | Unpack archive and compute NAR hash                         |
+| `--json`      | `false`  | Output JSON format                                          |
+| `--timeout`   | `300`    | Download timeout in seconds                                 |
+| `--fail-fast` | `false`  | Exit on first error                                         |
 
 ### Exit codes
 
@@ -87,32 +88,32 @@ echo "https://github.com/user/repo/archive/v1.0.0.tar.gz" | nix-bulkfetch-url
 ### Hash multiple URLs from a file
 
 ```bash
-cat urls.txt | nix-bulkfetch-url -j 8 -json
+cat urls.txt | nix-bulkfetch-url -j 8 --json
 ```
 
 ### Unpack and compute NAR hash
 
-This downloads each archive, extracts it, and runs `nix-hash --type sha256 --base32` on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
+This downloads each archive, extracts it, and computes a NAR hash on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
 
 ```bash
-cat urls.txt | nix-bulkfetch-url -unpack
+cat urls.txt | nix-bulkfetch-url --unpack
 ```
 
 ### Pipe URLs from a script
 
 ```bash
-grep -oP 'https://[^\s"]+\.tar\.gz' packages.nix | nix-bulkfetch-url -type blake3
+grep -oP 'https://[^\s"]+\.tar\.gz' packages.nix | nix-bulkfetch-url --type blake3
 ```
 
 ### JSON output for scripting
 
 ```bash
-cat urls.txt | nix-bulkfetch-url -json | jq '.[] | select(.error == null)'
+cat urls.txt | nix-bulkfetch-url --json | jq '.[] | select(.error == null)'
 ```
 
 ## How it works
 
 1. Reads URLs from stdin
 2. Downloads them concurrently using a pool of N workers
-3. For each URL: fetches to a temp directory, unpacks if `-unpack` is set, then hashes with `nix-hash`
-4. Prints one hash per line (or a JSON array with `-json`)
+3. For each URL: fetches to a temp directory, unpacks if `--unpack` is set, then hashes with `nix-hash`
+4. Prints one hash per line (or a JSON array with `--json`)

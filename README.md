@@ -6,7 +6,7 @@ Download files from URLs and print their hashes. Does not touch the Nix store. D
 ## Features
 
 - Concurrent with configurable worker pool (default: 16)
-- Archive unpacking: supports `.tar.gz` and `.zip`, computes NAR hashes via `nix-hash`
+- Archive unpacking: supports `.tar.gz`, `.tar.xz`, `.tar.bz2`, `.tar.zst`, and `.zip`, computes NAR hashes via `nix-hash`
 - Retry with exponential backoff (3 attempts by default)
 - Fail-fast mode to abort on first error
 - Zero dependencies: stdlib only, builds as a single static binary

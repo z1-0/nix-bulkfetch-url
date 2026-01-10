@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -26,7 +27,11 @@ func unpackWithSource(archivePath, destDir, sourceURL string) error {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
 		return unpackTarGz(archivePath, destDir)
 	case strings.HasSuffix(lower, ".tar.xz") || strings.HasSuffix(lower, ".txz"):
-		return unpackTarXz(archivePath, destDir)
+		return unpackTarCompress(archivePath, destDir, "xz", "-d")
+	case strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tbz2"):
+		return unpackTarCompress(archivePath, destDir, "bzip2", "-d")
+	case strings.HasSuffix(lower, ".tar.zst") || strings.HasSuffix(lower, ".tzst"):
+		return unpackTarCompress(archivePath, destDir, "zstd", "-d")
 	case strings.HasSuffix(lower, ".zip"):
 		return unpackZip(archivePath, destDir)
 	default:
@@ -39,7 +44,11 @@ func unpackWithSource(archivePath, destDir, sourceURL string) error {
 		case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
 			return unpackTarGz(archivePath, destDir)
 		case strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz"):
-			return unpackTarXz(archivePath, destDir)
+			return unpackTarCompress(archivePath, destDir, "xz", "-d")
+		case strings.HasSuffix(path, ".tar.bz2") || strings.HasSuffix(path, ".tbz2"):
+			return unpackTarCompress(archivePath, destDir, "bzip2", "-d")
+		case strings.HasSuffix(path, ".tar.zst") || strings.HasSuffix(path, ".tzst"):
+			return unpackTarCompress(archivePath, destDir, "zstd", "-d")
 		case strings.HasSuffix(path, ".zip"):
 			return unpackZip(archivePath, destDir)
 		default:
@@ -64,8 +73,22 @@ func unpackTarGz(archivePath, destDir string) error {
 	return unpackTar(gz, destDir)
 }
 
-func unpackTarXz(archivePath, destDir string) error {
-	return fmt.Errorf("tar.xz not implemented yet, use tar.gz or zip")
+func unpackTarCompress(archivePath, destDir, cmd string, args ...string) error {
+	tarPath := archivePath + ".tar"
+	defer os.Remove(tarPath)
+
+	out, err := exec.Command(cmd, append(args, "-k", "-o", tarPath, archivePath)...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s decompress failed: %w\noutput: %s", cmd, err, string(out))
+	}
+
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return unpackTar(f, destDir)
 }
 
 func unpackTar(r io.Reader, destDir string) error {

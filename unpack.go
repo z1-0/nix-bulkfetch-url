@@ -1,11 +1,7 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
-	"compress/gzip"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,177 +14,75 @@ func unpackWithSource(archivePath, destDir, sourceURL string) error {
 		return fmt.Errorf("creating dest dir: %w", err)
 	}
 
-	lower := strings.ToLower(sourceURL)
-	if idx := strings.Index(lower, "?"); idx != -1 {
-		lower = lower[:idx]
+	format := detectFormat(sourceURL)
+	if format == "" {
+		return fmt.Errorf("unsupported archive format: %s", filepath.Base(sourceURL))
 	}
 
-	switch {
-	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		return unpackTarGz(archivePath, destDir)
-	case strings.HasSuffix(lower, ".tar.xz") || strings.HasSuffix(lower, ".txz"):
-		return unpackTarCompress(archivePath, destDir, "xz", "-d")
-	case strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tbz2"):
-		return unpackTarCompress(archivePath, destDir, "bzip2", "-d")
-	case strings.HasSuffix(lower, ".tar.zst") || strings.HasSuffix(lower, ".tzst"):
-		return unpackTarCompress(archivePath, destDir, "zstd", "-d")
-	case strings.HasSuffix(lower, ".zip"):
-		return unpackZip(archivePath, destDir)
-	default:
-		u, err := url.Parse(sourceURL)
-		if err != nil {
-			return fmt.Errorf("unsupported archive format: %s", filepath.Base(sourceURL))
-		}
-		path := strings.ToLower(u.Path)
-		switch {
-		case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
-			return unpackTarGz(archivePath, destDir)
-		case strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz"):
-			return unpackTarCompress(archivePath, destDir, "xz", "-d")
-		case strings.HasSuffix(path, ".tar.bz2") || strings.HasSuffix(path, ".tbz2"):
-			return unpackTarCompress(archivePath, destDir, "bzip2", "-d")
-		case strings.HasSuffix(path, ".tar.zst") || strings.HasSuffix(path, ".tzst"):
-			return unpackTarCompress(archivePath, destDir, "zstd", "-d")
-		case strings.HasSuffix(path, ".zip"):
-			return unpackZip(archivePath, destDir)
-		default:
-			return fmt.Errorf("unsupported archive format: %s", filepath.Base(sourceURL))
-		}
-	}
-}
-
-func unpackTarGz(archivePath, destDir string) error {
-	f, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("gzip reader: %w", err)
-	}
-	defer gz.Close()
-
-	return unpackTar(gz, destDir)
-}
-
-func unpackTarCompress(archivePath, destDir, cmd string, args ...string) error {
-	tarPath := archivePath + ".tar"
-	defer os.Remove(tarPath)
-
-	out, err := exec.Command(cmd, append(args, "-k", "-o", tarPath, archivePath)...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s decompress failed: %w\noutput: %s", cmd, err, string(out))
-	}
-
-	f, err := os.Open(tarPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return unpackTar(f, destDir)
-}
-
-func unpackTar(r io.Reader, destDir string) error {
-	tr := tar.NewReader(r)
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("tar reader: %w", err)
-		}
-
-		target := filepath.Join(destDir, header.Name)
-
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid path in archive: %s", header.Name)
-		}
-
-		switch header.Typeflag {
-		case tar.TypeDir:
-			mode := os.FileMode(header.Mode)
-			if err := os.MkdirAll(target, mode); err != nil {
-				return err
-			}
-			if err := os.Chmod(target, mode); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			mode := os.FileMode(header.Mode)
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-			if err := os.Chmod(target, mode); err != nil {
-				return err
-			}
-		case tar.TypeSymlink:
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-				return err
-			}
-			os.Remove(target)
-			if err := os.Symlink(header.Linkname, target); err != nil {
-				return err
-			}
-		}
+	switch format {
+	case "tar.gz":
+		return run("tar", "xzf", archivePath, "-C", destDir)
+	case "tar.xz":
+		return run("tar", "xJf", archivePath, "-C", destDir)
+	case "tar.bz2":
+		return run("tar", "xjf", archivePath, "-C", destDir)
+	case "tar.zst":
+		return run("tar", "--zstd", "-xf", archivePath, "-C", destDir)
+	case "tar.lzma":
+		return run("tar", "--lzma", "-xf", archivePath, "-C", destDir)
+	case "tar.lz":
+		return run("tar", "--lzip", "-xf", archivePath, "-C", destDir)
+	case "tar.lz4":
+		return run("tar", "--lz4", "-xf", archivePath, "-C", destDir)
+	case "tar.lzo":
+		return run("tar", "--lzo", "-xf", archivePath, "-C", destDir)
+	case "tar.Z":
+		return run("tar", "-Z", "-xf", archivePath, "-C", destDir)
+	case "zip":
+		return run("unzip", "-q", archivePath, "-d", destDir)
 	}
 	return nil
 }
 
-func unpackZip(archivePath, destDir string) error {
-	r, err := zip.OpenReader(archivePath)
+func detectFormat(sourceURL string) string {
+	u, err := url.Parse(sourceURL)
 	if err != nil {
-		return err
+		return ""
 	}
-	defer r.Close()
+	return matchExt(strings.ToLower(u.Path))
+}
 
-	for _, f := range r.File {
-		target := filepath.Join(destDir, f.Name)
+func matchExt(path string) string {
+	switch {
+	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
+		return "tar.gz"
+	case strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz"):
+		return "tar.xz"
+	case strings.HasSuffix(path, ".tar.bz2") || strings.HasSuffix(path, ".tbz2"):
+		return "tar.bz2"
+	case strings.HasSuffix(path, ".tar.zst") || strings.HasSuffix(path, ".tzst"):
+		return "tar.zst"
+	case strings.HasSuffix(path, ".tar.lzma") || strings.HasSuffix(path, ".tlzma"):
+		return "tar.lzma"
+	case strings.HasSuffix(path, ".tar.lz") || strings.HasSuffix(path, ".tlz"):
+		return "tar.lz"
+	case strings.HasSuffix(path, ".tar.lz4") || strings.HasSuffix(path, ".tlz4"):
+		return "tar.lz4"
+	case strings.HasSuffix(path, ".tar.lzo") || strings.HasSuffix(path, ".tlzo"):
+		return "tar.lzo"
+	case strings.HasSuffix(path, ".tar.Z") || strings.HasSuffix(path, ".tZ"):
+		return "tar.Z"
+	case strings.HasSuffix(path, ".zip"):
+		return "zip"
+	}
+	return ""
+}
 
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid path in archive: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0755); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			outFile.Close()
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-		rc.Close()
-		outFile.Close()
-		if err != nil {
-			return err
-		}
+func run(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s failed: %w\noutput: %s", name, err, string(out))
 	}
 	return nil
 }

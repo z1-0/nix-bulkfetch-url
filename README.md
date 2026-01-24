@@ -1,15 +1,14 @@
 <!-- prettier-ignore -->
 # nix-bulkfetch-url
 
-Download files from URLs and print their hashes. Does not touch the Nix store. Downloads run in parallel.
+Fetch URLs, print hashes. No Nix store, parallel.
 
 ## Features
 
-- Concurrent with configurable worker pool (default: 16)
-- Archive unpacking: supports `.tar.gz`, `.tar.xz`, `.tar.bz2`, `.tar.zst`, and `.zip`, computes NAR hashes via `nix-hash`
-- Retry with exponential backoff (3 attempts by default)
-- Fail-fast mode to abort on first error
-- Zero dependencies: stdlib only, builds as a single static binary
+- Configurable worker pool (default: 16 concurrent downloads)
+- Retries with exponential backoff (3 attempts by default)
+- Fail-fast mode to bail on first error
+- Zero dependencies—just stdlib, builds as a single static binary
 
 ## Install
 
@@ -49,6 +48,23 @@ home.packages = [
 ];
 ```
 
+## Dependencies
+
+The binary itself has no Go dependencies—statically linked. Archive unpacking uses external tools:
+
+| Format                | Tool               |
+| --------------------- | ------------------ |
+| `.tar.gz`, `.tgz`     | `tar`              |
+| `.tar.xz`, `.txz`     | `tar`              |
+| `.tar.bz2`, `.tbz2`   | `tar`              |
+| `.tar.zst`, `.tzst`   | `tar` + `zstd`     |
+| `.tar.lzma`, `.tlzma` | `tar`              |
+| `.tar.lz`, `.tlz`     | `tar` + `lzip`     |
+| `.tar.lz4`, `.tlz4`   | `tar` + `lz4`      |
+| `.tar.lzo`, `.tlzo`   | `tar` + `lzop`     |
+| `.tar.Z`, `.tZ`       | `tar` + `compress` |
+| `.zip`                | `unzip`            |
+
 ## Usage
 
 Feed URLs via stdin, one per line. Lines starting with `#` and empty lines are ignored.
@@ -61,21 +77,21 @@ echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 
 | Flag          | Default  | Description                                                 |
 | ------------- | -------- | ----------------------------------------------------------- |
-| `-j`          | `16`     | Number of concurrent workers                                |
+| `-j`          | `16`     | Concurrent workers                                          |
 | `--type`      | `sha256` | Hash algorithm: `md5`, `sha1`, `sha256`, `sha512`, `blake3` |
-| `--format`    | `sri`    | Hash output format: `base16`, `base32`, `base64`, `sri`     |
+| `--format`    | `sri`    | Output format: `base16`, `base32`, `base64`, `sri`          |
 | `--unpack`    | `false`  | Unpack archive and compute NAR hash                         |
-| `--json`      | `false`  | Output JSON format                                          |
-| `--timeout`   | `300`    | Download timeout in seconds                                 |
+| `--json`      | `false`  | Output as JSON                                              |
+| `--timeout`   | `300`    | Download timeout (seconds)                                  |
 | `--fail-fast` | `false`  | Exit on first error                                         |
 
 ### Exit codes
 
-| Code | Meaning                          |
-| ---- | -------------------------------- |
-| `0`  | All URLs succeeded               |
-| `1`  | Some URLs failed, some succeeded |
-| `2`  | No URLs succeeded (or no input)  |
+| Code | Meaning                         |
+| ---- | ------------------------------- |
+| `0`  | All URLs succeeded              |
+| `1`  | Some failed, some succeeded     |
+| `2`  | Nothing succeeded (or no input) |
 
 ## Examples
 
@@ -93,7 +109,7 @@ cat urls.txt | nix-bulkfetch-url -j 8 --json
 
 ### Unpack and compute NAR hash
 
-This downloads each archive, extracts it, and computes a NAR hash on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
+Downloads each archive, extracts it, and computes a NAR hash on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
 
 ```bash
 cat urls.txt | nix-bulkfetch-url --unpack

@@ -9,6 +9,25 @@ import (
 	"strings"
 )
 
+type archiveFormat struct {
+	extensions []string
+	args       []string
+	destFlag   string
+}
+
+var archiveFormats = map[string]archiveFormat{
+	"tar.gz":   {[]string{".tar.gz", ".tgz"}, []string{"tar", "xzf"}, "-C"},
+	"tar.xz":   {[]string{".tar.xz", ".txz"}, []string{"tar", "xJf"}, "-C"},
+	"tar.bz2":  {[]string{".tar.bz2", ".tbz2"}, []string{"tar", "xjf"}, "-C"},
+	"tar.zst":  {[]string{".tar.zst", ".tzst"}, []string{"tar", "--zstd", "-xf"}, "-C"},
+	"tar.lzma": {[]string{".tar.lzma", ".tlzma"}, []string{"tar", "--lzma", "-xf"}, "-C"},
+	"tar.lz":   {[]string{".tar.lz", ".tlz"}, []string{"tar", "--lzip", "-xf"}, "-C"},
+	"tar.lz4":  {[]string{".tar.lz4", ".tlz4"}, []string{"tar", "--lz4", "-xf"}, "-C"},
+	"tar.lzo":  {[]string{".tar.lzo", ".tlzo"}, []string{"tar", "--lzo", "-xf"}, "-C"},
+	"tar.Z":    {[]string{".tar.Z", ".tZ"}, []string{"tar", "-Z", "-xf"}, "-C"},
+	"zip":      {[]string{".zip"}, []string{"unzip", "-q"}, "-d"},
+}
+
 func unpackWithSource(archivePath, destDir, sourceURL string) error {
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("creating dest dir: %w", err)
@@ -19,29 +38,12 @@ func unpackWithSource(archivePath, destDir, sourceURL string) error {
 		return fmt.Errorf("unsupported archive format: %s", filepath.Base(sourceURL))
 	}
 
-	switch format {
-	case "tar.gz":
-		return run("tar", "xzf", archivePath, "-C", destDir)
-	case "tar.xz":
-		return run("tar", "xJf", archivePath, "-C", destDir)
-	case "tar.bz2":
-		return run("tar", "xjf", archivePath, "-C", destDir)
-	case "tar.zst":
-		return run("tar", "--zstd", "-xf", archivePath, "-C", destDir)
-	case "tar.lzma":
-		return run("tar", "--lzma", "-xf", archivePath, "-C", destDir)
-	case "tar.lz":
-		return run("tar", "--lzip", "-xf", archivePath, "-C", destDir)
-	case "tar.lz4":
-		return run("tar", "--lz4", "-xf", archivePath, "-C", destDir)
-	case "tar.lzo":
-		return run("tar", "--lzo", "-xf", archivePath, "-C", destDir)
-	case "tar.Z":
-		return run("tar", "-Z", "-xf", archivePath, "-C", destDir)
-	case "zip":
-		return run("unzip", "-q", archivePath, "-d", destDir)
+	af, ok := archiveFormats[format]
+	if !ok {
+		return fmt.Errorf("unsupported archive format: %s", format)
 	}
-	return nil
+
+	return run(af.args[0], append(af.args[1:], archivePath, af.destFlag, destDir)...)
 }
 
 func detectFormat(sourceURL string) string {
@@ -53,27 +55,12 @@ func detectFormat(sourceURL string) string {
 }
 
 func matchExt(path string) string {
-	switch {
-	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
-		return "tar.gz"
-	case strings.HasSuffix(path, ".tar.xz") || strings.HasSuffix(path, ".txz"):
-		return "tar.xz"
-	case strings.HasSuffix(path, ".tar.bz2") || strings.HasSuffix(path, ".tbz2"):
-		return "tar.bz2"
-	case strings.HasSuffix(path, ".tar.zst") || strings.HasSuffix(path, ".tzst"):
-		return "tar.zst"
-	case strings.HasSuffix(path, ".tar.lzma") || strings.HasSuffix(path, ".tlzma"):
-		return "tar.lzma"
-	case strings.HasSuffix(path, ".tar.lz") || strings.HasSuffix(path, ".tlz"):
-		return "tar.lz"
-	case strings.HasSuffix(path, ".tar.lz4") || strings.HasSuffix(path, ".tlz4"):
-		return "tar.lz4"
-	case strings.HasSuffix(path, ".tar.lzo") || strings.HasSuffix(path, ".tlzo"):
-		return "tar.lzo"
-	case strings.HasSuffix(path, ".tar.Z") || strings.HasSuffix(path, ".tZ"):
-		return "tar.Z"
-	case strings.HasSuffix(path, ".zip"):
-		return "zip"
+	for format, af := range archiveFormats {
+		for _, ext := range af.extensions {
+			if strings.HasSuffix(path, ext) {
+				return format
+			}
+		}
 	}
 	return ""
 }

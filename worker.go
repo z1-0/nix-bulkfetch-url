@@ -57,8 +57,9 @@ func WorkerPool(urls []string, opts Options) []Result {
 				if opts.FailFast && result.Error != nil {
 					cancel()
 				}
-				fmt.Fprintf(os.Stderr, "[%d/%d] %s\n", completed, total, urls[idx])
 				mu.Unlock()
+
+				fmt.Fprintf(os.Stderr, "[%d/%d] %s\n", completed, total, urls[idx])
 			}
 		}()
 	}
@@ -76,10 +77,8 @@ func processURL(ctx context.Context, url string, index int, opts Options) Result
 	var lastErr error
 
 	for attempt := 0; attempt <= opts.Retries; attempt++ {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return Result{Index: index, URL: url, Error: ctx.Err()}
-		default:
 		}
 
 		if attempt > 0 {

@@ -5,25 +5,38 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-    }:
+    { nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter =
+            path: type:
+            let
+              base = baseNameOf path;
+            in
+            (type == "directory")
+            || pkgs.lib.hasSuffix ".go" base
+            || base == "go.mod"
+            || base == "go.sum"
+            || base == "LICENSE";
+        };
+
+        nix-bulkfetch-url = pkgs.buildGoModule {
+          pname = "nix-bulkfetch-url";
+          version = "0.1.0";
+          inherit src;
+          vendorHash = null;
+          doCheck = false;
+        };
       in
       {
         packages = {
-          nix-bulkfetch-url = pkgs.buildGoModule {
-            pname = "nix-bulkfetch-url";
-            version = "0.1.0";
-            src = ./.;
-            vendorHash = null;
-          };
-          default = self.packages.${system}.nix-bulkfetch-url;
+          default = nix-bulkfetch-url;
+          nix-bulkfetch-url = nix-bulkfetch-url;
         };
 
         devShells.default = pkgs.mkShell {

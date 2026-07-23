@@ -26,7 +26,7 @@ type Result struct {
 	Error error
 }
 
-func WorkerPool(urls []string, opts Options) []Result {
+func WorkerPool(urls []string, opts Options, progress *Progress) []Result {
 	results := make([]Result, len(urls))
 	ch := make(chan int, len(urls))
 	var wg sync.WaitGroup
@@ -49,7 +49,8 @@ func WorkerPool(urls []string, opts Options) []Result {
 				default:
 				}
 
-				result := processURL(ctx, urls[idx], idx, opts)
+				progress.SetTask(idx, total)
+				result := processURL(ctx, urls[idx], idx, opts, progress)
 
 				mu.Lock()
 				results[idx] = result
@@ -58,8 +59,6 @@ func WorkerPool(urls []string, opts Options) []Result {
 					cancel()
 				}
 				mu.Unlock()
-
-				fmt.Fprintf(os.Stderr, "[%d/%d] %s\n", completed, total, urls[idx])
 			}
 		}()
 	}
@@ -70,10 +69,11 @@ func WorkerPool(urls []string, opts Options) []Result {
 	close(ch)
 
 	wg.Wait()
+	progress.Done()
 	return results
 }
 
-func processURL(ctx context.Context, url string, index int, opts Options) Result {
+func processURL(ctx context.Context, url string, index int, opts Options, progress *Progress) Result {
 	var lastErr error
 
 	for attempt := 0; attempt <= opts.Retries; attempt++ {
@@ -85,7 +85,7 @@ func processURL(ctx context.Context, url string, index int, opts Options) Result
 			time.Sleep(time.Duration(1<<(attempt-1)) * time.Second)
 		}
 
-		result, err := tryFetch(ctx, url, opts)
+		result, err := tryFetch(ctx, url, opts, progress)
 		if err == nil {
 			return Result{Index: index, URL: url, Hash: result}
 		}
@@ -95,7 +95,7 @@ func processURL(ctx context.Context, url string, index int, opts Options) Result
 	return Result{Index: index, URL: url, Error: lastErr}
 }
 
-func tryFetch(ctx context.Context, url string, opts Options) (string, error) {
+func tryFetch(ctx context.Context, url string, opts Options, progress *Progress) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "nix-bulkfetch-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp dir: %w", err)
@@ -104,6 +104,8 @@ func tryFetch(ctx context.Context, url string, opts Options) (string, error) {
 
 	dlCtx, cancel := context.WithTimeout(ctx, time.Duration(opts.Timeout)*time.Second)
 	defer cancel()
+
+	progress.Update(url)
 
 	archivePath := filepath.Join(tmpDir, "download")
 	if err := download(dlCtx, url, archivePath); err != nil {
@@ -119,6 +121,7 @@ func tryFetch(ctx context.Context, url string, opts Options) (string, error) {
 		}
 		hashPath = findUnpackedDir(unpackDir)
 	}
+
 
 	hash, err := nixHash(opts.HashType, opts.Format, hashPath, !opts.Unpack)
 	if err != nil {

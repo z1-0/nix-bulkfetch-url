@@ -28,9 +28,9 @@ func init() {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 
 		type flagInfo struct {
-			name    string
-			usage   string
-			def     string
+			name  string
+			usage string
+			def   string
 		}
 
 		var flags []flagInfo
@@ -82,7 +82,8 @@ func main() {
 		FailFast: *failFast,
 	}
 
-	results := WorkerPool(urls, opts)
+	progress := NewProgress()
+	results := WorkerPool(urls, opts, progress)
 	outputResults(results, *jsonOut)
 
 	allSuccess := true

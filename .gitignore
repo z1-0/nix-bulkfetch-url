@@ -12,3 +12,4 @@ coverage.*
 go.work
 go.work.sum
 profile.cov
+nix-bulkfetch-url

@@ -1,0 +1,33 @@
+name: Update flake.lock
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: DeterminateSystems/update-flake-lock@v28
+        id: update
+        with:
+          pr-title: "chore(deps): update flake.lock"
+          pr-labels: |
+            dependencies
+          token: ${{ secrets.GH_ACTIONS_TOKEN }}
+      - name: Enable auto-merge
+        if: steps.update.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge --auto --squash "${{ steps.update.outputs.pull-request-number }}" \
+            --subject "chore(deps): update flake.lock"

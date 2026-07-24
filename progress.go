@@ -74,6 +74,7 @@ type progressDisplay struct {
 	stopCh    chan struct{}
 	w         io.Writer
 	width     int
+	started   bool
 }
 
 func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
@@ -204,31 +205,31 @@ func (pd *progressDisplay) render() {
 	half := pd.width / 2
 	var b strings.Builder
 	b.Grow(pd.width * (pd.rows + 1))
-	b.WriteString(fmt.Sprintf("\033[%dA", pd.rows))
+	if pd.started {
+		b.WriteString(fmt.Sprintf("\033[%dA", pd.rows))
+	}
+	pd.started = true
 	for r := 0; r < pd.rows; r++ {
 		b.WriteString("\033[K")
 		left := formatWorkerLine(pd.workers[r*2], half)
 		right := formatWorkerLine(pd.workers[r*2+1], half)
-		if left != "" {
-			b.WriteString(left)
-		}
 		if left != "" && right != "" {
+			leftRunes := []rune(left)
+			if len(leftRunes) > half-1 {
+				left = string(leftRunes[:half-4]) + "..."
+			}
 			pad := half - len([]rune(left))
 			if pad < 1 {
 				pad = 1
 			}
-			if pad+len([]rune(right)) >= half {
-				pad = half - len([]rune(right))
-				if pad < 1 {
-					pad = 1
-				}
-			}
+			b.WriteString(left)
 			b.WriteString(strings.Repeat(" ", pad))
+			b.WriteString(right)
 		} else if right != "" {
 			b.WriteString(strings.Repeat(" ", half))
-		}
-		if right != "" {
 			b.WriteString(right)
+		} else {
+			b.WriteString(left)
 		}
 		if r < pd.rows-1 {
 			b.WriteString("\n")
@@ -244,26 +245,16 @@ func (pd *progressDisplay) renderFinal() {
 	if !pd.tty || pd.rows == 0 {
 		return
 	}
-	pd.clearAll()
+	// cursor is at global line after last render
+	for r := 0; r < pd.rows; r++ {
+		fmt.Fprintf(pd.w, "\033[A\033[K")
+	}
+	fmt.Fprintf(pd.w, "\033[K")
 	c := pd.total
 	if cVal := pd.completed.Load(); cVal > 0 {
 		c = int(cVal)
 	}
-	fmt.Fprintf(pd.w, "[%d/%d] done\n", c, pd.total)
-}
-
-func (pd *progressDisplay) clearAll() {
-	if !pd.tty || pd.rows == 0 {
-		return
-	}
-	fmt.Fprintf(pd.w, "\033[%dA", pd.rows)
-	for r := 0; r <= pd.rows; r++ {
-		pd.w.Write([]byte("\033[K"))
-		if r < pd.rows {
-			pd.w.Write([]byte("\n"))
-		}
-	}
-	fmt.Fprintf(pd.w, "\033[%dA\033[J", pd.rows+1)
+	fmt.Fprintf(pd.w, "\r[%d/%d] done\n", c, pd.total)
 }
 
 func (pd *progressDisplay) stop() {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +12,12 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+)
+
+const (
+	kib = 1024
+	mib = kib * 1024
+	gib = mib * 1024
 )
 
 type workerState struct {
@@ -126,17 +131,17 @@ func roundUpWorkers(n int) int {
 }
 
 func formatBytes(n int64) string {
-	if n < 1024 {
+	if n < kib {
 		return strconv.FormatInt(n, 10) + " B"
 	}
 	f := float64(n)
 	switch {
-	case f < math.Pow(1024, 2):
-		return fmt.Sprintf("%.1f KiB", f/1024)
-	case f < math.Pow(1024, 3):
-		return fmt.Sprintf("%.1f MiB", f/(1024*1024))
+	case f < mib:
+		return fmt.Sprintf("%.1f KiB", f/kib)
+	case f < gib:
+		return fmt.Sprintf("%.1f MiB", f/mib)
 	default:
-		return fmt.Sprintf("%.1f GiB", f/(1024*1024*1024))
+		return fmt.Sprintf("%.1f GiB", f/gib)
 	}
 }
 

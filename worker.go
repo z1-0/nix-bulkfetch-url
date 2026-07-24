@@ -91,7 +91,13 @@ func processURL(ctx context.Context, url string, index int, opts Options, ws *wo
 		}
 
 		if attempt > 0 {
-			time.Sleep(time.Duration(1<<(attempt-1)) * time.Second)
+			timer := time.NewTimer(time.Duration(1<<(attempt-1)) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return Result{Index: index, URL: url, Error: ctx.Err()}
+			case <-timer.C:
+			}
 		}
 
 		result, err := tryFetch(ctx, url, opts, ws)

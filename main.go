@@ -134,7 +134,10 @@ func outputResults(results []Result, jsonMode bool) {
 			}
 			items = append(items, item)
 		}
-		json.NewEncoder(os.Stdout).Encode(items)
+		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing JSON output: %v\n", err)
+			os.Exit(2)
+		}
 	} else {
 		for _, r := range results {
 			if r.Error != nil {

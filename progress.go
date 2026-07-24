@@ -75,7 +75,7 @@ func (ws *workerState) snapshot() workerState {
 type progressDisplay struct {
 	workers   []*workerState
 	completed atomic.Int64
-	total     int
+	total     int64
 	tty       bool
 	rows      int
 	stopCh    chan struct{}
@@ -103,7 +103,7 @@ func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
 	tty := err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 	return &progressDisplay{
 		workers: ws,
-		total:   numURLs,
+		total:   int64(numURLs),
 		tty:     tty,
 		rows:    rows,
 		stopCh:  make(chan struct{}),
@@ -303,7 +303,7 @@ func (pd *progressDisplay) renderFinal() {
 	fmt.Fprintf(pd.w, "\r\033[K")
 	c := pd.total
 	if cVal := pd.completed.Load(); cVal > 0 {
-		c = int(cVal)
+		c = cVal
 	}
 	fmt.Fprintf(pd.w, "\r\033[32m[%d/%d]\033[0m done\n\n\033[J", c, pd.total)
 }

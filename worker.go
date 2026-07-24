@@ -43,9 +43,7 @@ func WorkerPool(urls []string, opts Options) []Result {
 	numWorkers := opts.Workers
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		ws := display.workerByIndex(i)
-		hasDisplay := ws != nil
-		go func(ws *workerState, hasDisplay bool) {
+		go func() {
 			defer wg.Done()
 			for idx := range ch {
 				select {
@@ -54,12 +52,13 @@ func WorkerPool(urls []string, opts Options) []Result {
 				default:
 				}
 
-				if hasDisplay {
+				ws := display.workerForURL(idx)
+				if ws != nil {
 					ws.start(urls[idx])
 				}
 				result := processURL(ctx, urls[idx], idx, opts, ws)
 				display.completed.Add(1)
-				if hasDisplay {
+				if ws != nil {
 					ws.done()
 				}
 
@@ -70,7 +69,7 @@ func WorkerPool(urls []string, opts Options) []Result {
 				}
 				mu.Unlock()
 			}
-		}(ws, hasDisplay)
+		}()
 	}
 
 	for i := range urls {

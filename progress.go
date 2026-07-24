@@ -72,6 +72,7 @@ type progressDisplay struct {
 	tty       bool
 	rows      int
 	stopCh    chan struct{}
+	doneCh    chan struct{}
 	w         io.Writer
 	width     int
 	started   bool
@@ -92,6 +93,7 @@ func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
 		tty:     tty,
 		rows:    rows,
 		stopCh:  make(chan struct{}),
+		doneCh:  make(chan struct{}),
 		w:       os.Stderr,
 		width:   termWidth(),
 	}
@@ -188,9 +190,11 @@ func (pd *progressDisplay) renderLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			close(pd.doneCh)
 			return
 		case <-pd.stopCh:
 			pd.renderFinal()
+			close(pd.doneCh)
 			return
 		case <-ticker.C:
 			pd.render()
@@ -254,11 +258,24 @@ func (pd *progressDisplay) renderFinal() {
 	if cVal := pd.completed.Load(); cVal > 0 {
 		c = int(cVal)
 	}
-	fmt.Fprintf(pd.w, "\r[%d/%d] done\n", c, pd.total)
+	fmt.Fprintf(pd.w, "\r[%d/%d] done\n\033[J", c, pd.total)
+}
+
+// test helper: creates display writing to buf with forced tty
+func newTestDisplay(workers, total int, w io.Writer, width int) *progressDisplay {
+	d := newProgressDisplay(workers, total)
+	d.tty = true
+	d.w = w
+	d.width = width
+	return d
 }
 
 func (pd *progressDisplay) stop() {
+	if !pd.tty || pd.rows == 0 {
+		return
+	}
 	close(pd.stopCh)
+	<-pd.doneCh
 }
 
 type progressFunc func(downloaded, total int64)

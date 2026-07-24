@@ -4,9 +4,22 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"time"
 )
+
+var client = &http.Client{
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	},
+}
 
 func download(ctx context.Context, url, dest string, onProgress progressFunc) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -14,7 +27,7 @@ func download(ctx context.Context, url, dest string, onProgress progressFunc) er
 		return fmt.Errorf("creating request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}

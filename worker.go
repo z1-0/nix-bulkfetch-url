@@ -26,21 +26,26 @@ type Result struct {
 	Error error
 }
 
-func WorkerPool(urls []string, opts Options, progress *Progress) []Result {
+func WorkerPool(urls []string, opts Options) []Result {
 	results := make([]Result, len(urls))
 	ch := make(chan int, len(urls))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	total := len(urls)
-	completed := 0
 
+	display := newProgressDisplay(opts.Workers, total)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	for i := 0; i < opts.Workers; i++ {
+	display.start(ctx)
+
+	numWorkers := opts.Workers
+	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func() {
+		ws := display.workerByIndex(i)
+		hasDisplay := ws != nil
+		go func(ws *workerState, hasDisplay bool) {
 			defer wg.Done()
 			for idx := range ch {
 				select {
@@ -49,18 +54,23 @@ func WorkerPool(urls []string, opts Options, progress *Progress) []Result {
 				default:
 				}
 
-				progress.SetTask(idx, total)
-				result := processURL(ctx, urls[idx], idx, opts, progress)
+				if hasDisplay {
+					ws.start(urls[idx])
+				}
+				result := processURL(ctx, urls[idx], idx, opts, ws)
+				display.completed.Add(1)
+				if hasDisplay {
+					ws.done()
+				}
 
 				mu.Lock()
 				results[idx] = result
-				completed++
 				if opts.FailFast && result.Error != nil {
 					cancel()
 				}
 				mu.Unlock()
 			}
-		}()
+		}(ws, hasDisplay)
 	}
 
 	for i := range urls {
@@ -69,11 +79,11 @@ func WorkerPool(urls []string, opts Options, progress *Progress) []Result {
 	close(ch)
 
 	wg.Wait()
-	progress.Done()
+	display.stop()
 	return results
 }
 
-func processURL(ctx context.Context, url string, index int, opts Options, progress *Progress) Result {
+func processURL(ctx context.Context, url string, index int, opts Options, ws *workerState) Result {
 	var lastErr error
 
 	for attempt := 0; attempt <= opts.Retries; attempt++ {
@@ -85,17 +95,20 @@ func processURL(ctx context.Context, url string, index int, opts Options, progre
 			time.Sleep(time.Duration(1<<(attempt-1)) * time.Second)
 		}
 
-		result, err := tryFetch(ctx, url, opts, progress)
+		result, err := tryFetch(ctx, url, opts, ws)
 		if err == nil {
 			return Result{Index: index, URL: url, Hash: result}
 		}
 		lastErr = err
 	}
 
+	if ws != nil {
+		ws.fail(lastErr.Error())
+	}
 	return Result{Index: index, URL: url, Error: lastErr}
 }
 
-func tryFetch(ctx context.Context, url string, opts Options, progress *Progress) (string, error) {
+func tryFetch(ctx context.Context, url string, opts Options, ws *workerState) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "nix-bulkfetch-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp dir: %w", err)
@@ -105,10 +118,15 @@ func tryFetch(ctx context.Context, url string, opts Options, progress *Progress)
 	dlCtx, cancel := context.WithTimeout(ctx, time.Duration(opts.Timeout)*time.Second)
 	defer cancel()
 
-	progress.Update(url)
+	var onProgress progressFunc
+	if ws != nil {
+		onProgress = func(downloaded, total int64) {
+			ws.update(downloaded, total)
+		}
+	}
 
 	archivePath := filepath.Join(tmpDir, "download")
-	if err := download(dlCtx, url, archivePath); err != nil {
+	if err := download(dlCtx, url, archivePath, onProgress); err != nil {
 		return "", fmt.Errorf("downloading: %w", err)
 	}
 
@@ -121,7 +139,6 @@ func tryFetch(ctx context.Context, url string, opts Options, progress *Progress)
 		}
 		hashPath = findUnpackedDir(unpackDir)
 	}
-
 
 	hash, err := nixHash(opts.HashType, opts.Format, hashPath, !opts.Unpack)
 	if err != nil {

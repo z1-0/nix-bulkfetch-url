@@ -82,8 +82,7 @@ func main() {
 		FailFast: *failFast,
 	}
 
-	progress := NewProgress()
-	results := WorkerPool(urls, opts, progress)
+	results := WorkerPool(urls, opts)
 	outputResults(results, *jsonOut)
 
 	allSuccess := true

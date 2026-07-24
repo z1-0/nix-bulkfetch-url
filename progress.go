@@ -161,11 +161,11 @@ func formatWorkerLine(ws *workerState, halfWidth int) string {
 	return line
 }
 
-func (pd *progressDisplay) workerByIndex(idx int) *workerState {
-	if idx < 0 || idx >= len(pd.workers) {
+func (pd *progressDisplay) workerForURL(urlIdx int) *workerState {
+	if len(pd.workers) == 0 {
 		return nil
 	}
-	return pd.workers[idx]
+	return pd.workers[urlIdx%len(pd.workers)]
 }
 
 func (pd *progressDisplay) start(ctx context.Context) {

@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+	"unsafe"
 )
 
 type workerState struct {
@@ -79,9 +81,16 @@ type progressDisplay struct {
 }
 
 func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
-	dispWorkers := roundUpWorkers(numWorkers)
-	rows := calcRows(numWorkers)
-	ws := make([]*workerState, dispWorkers)
+	displaySlots := numWorkers
+	if numURLs < displaySlots {
+		displaySlots = numURLs
+	}
+	displaySlots = roundUpWorkers(displaySlots)
+	if displaySlots%2 != 0 {
+		displaySlots++
+	}
+	rows := displaySlots / 2
+	ws := make([]*workerState, displaySlots)
 	for i := range ws {
 		ws[i] = &workerState{}
 	}
@@ -104,10 +113,6 @@ func termWidth() int {
 		return w
 	}
 	return 80
-}
-
-func calcRows(workers int) int {
-	return roundUpWorkers(workers) / 2
 }
 
 func roundUpWorkers(n int) int {
@@ -142,23 +147,57 @@ func formatProgress(downloaded, total int64) string {
 	return "[" + formatBytes(downloaded) + "]"
 }
 
+func colorizeProgress(prog string) string {
+	if len(prog) < 3 {
+		return prog
+	}
+	inner := prog[1 : len(prog)-1]
+	if slash := strings.IndexByte(inner, '/'); slash >= 0 {
+		x1 := inner[:slash]
+		x2 := inner[slash:]
+		return "\033[32m[" + x1 + "\033[0m" + x2 + "\033[32m]\033[0m"
+	}
+	return "\033[32m[" + inner + "]\033[0m"
+}
+
 func formatWorkerLine(ws *workerState, halfWidth int) string {
 	s := ws.snapshot()
 	if s.err != "" {
-		msg := "[FAIL] " + s.err
-		if len([]rune(msg)) > halfWidth {
-			msg = string([]rune(msg)[:halfWidth-3]) + "..."
+		visible := "[FAIL] " + s.err
+		if len([]rune(visible)) > halfWidth {
+			visible = string([]rune(visible)[:halfWidth-3]) + "..."
 		}
-		return msg
+		return "\033[31m" + visible[:6] + "\033[0m" + visible[6:]
 	}
 	if s.url == "" {
 		return ""
 	}
-	line := fmt.Sprintf("%s '%s'", formatProgress(s.downloaded, s.total), s.url)
-	if len([]rune(line)) > halfWidth {
-		line = string([]rune(line)[:halfWidth-3]) + "..."
+	prog := formatProgress(s.downloaded, s.total)
+	visible := prog + " " + s.url
+	if len([]rune(visible)) > halfWidth {
+		visible = string([]rune(visible)[:halfWidth-3]) + "..."
 	}
-	return line
+	progLen := len([]rune(prog))
+	if progLen > len([]rune(visible)) {
+		progLen = len([]rune(visible))
+	}
+	runes := []rune(visible)
+	return colorizeProgress(string(runes[:progLen])) + string(runes[progLen:])
+}
+
+func visibleLen(s string) int {
+	var n int
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == '\033' {
+			for i < len(runes) && runes[i] != 'm' {
+				i++
+			}
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 func (pd *progressDisplay) workerForURL(urlIdx int) *workerState {
@@ -177,10 +216,10 @@ func (pd *progressDisplay) start(ctx context.Context) {
 }
 
 func (pd *progressDisplay) allocateLines() {
-	for i := 0; i < pd.rows+1; i++ {
+	for i := 0; i < pd.rows+2; i++ {
 		fmt.Fprintln(pd.w)
 	}
-	fmt.Fprintf(pd.w, "\033[%dA", pd.rows+1)
+	fmt.Fprintf(pd.w, "\033[%dA", pd.rows+2)
 }
 
 func (pd *progressDisplay) renderLoop(ctx context.Context) {
@@ -206,31 +245,34 @@ func (pd *progressDisplay) render() {
 	if !pd.tty || pd.rows == 0 {
 		return
 	}
-	half := pd.width / 2
+	colWidth := (pd.width - 1) / 2
+	if colWidth < 5 {
+		colWidth = 5
+	}
 	var b strings.Builder
 	b.Grow(pd.width * (pd.rows + 1))
 	if pd.started {
-		b.WriteString(fmt.Sprintf("\033[%dA", pd.rows))
+		b.WriteString(fmt.Sprintf("\033[%dA", pd.rows+1))
 	}
 	pd.started = true
 	for r := 0; r < pd.rows; r++ {
-		b.WriteString("\033[K")
-		left := formatWorkerLine(pd.workers[r*2], half)
-		right := formatWorkerLine(pd.workers[r*2+1], half)
+		b.WriteString("\r\033[K")
+		left := formatWorkerLine(pd.workers[r*2], colWidth)
+		right := formatWorkerLine(pd.workers[r*2+1], colWidth)
 		if left != "" && right != "" {
-			leftRunes := []rune(left)
-			if len(leftRunes) > half-1 {
-				left = string(leftRunes[:half-4]) + "..."
+			leftVis := visibleLen(left)
+			if leftVis > colWidth {
+				leftVis = colWidth
 			}
-			pad := half - len([]rune(left))
-			if pad < 1 {
-				pad = 1
+			gap := colWidth + 1 - leftVis
+			if gap < 1 {
+				gap = 1
 			}
 			b.WriteString(left)
-			b.WriteString(strings.Repeat(" ", pad))
+			b.WriteString(strings.Repeat(" ", gap))
 			b.WriteString(right)
 		} else if right != "" {
-			b.WriteString(strings.Repeat(" ", half))
+			b.WriteString(strings.Repeat(" ", colWidth+1))
 			b.WriteString(right)
 		} else {
 			b.WriteString(left)
@@ -239,9 +281,9 @@ func (pd *progressDisplay) render() {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n\033[K")
+	b.WriteString("\n\n\r\033[K")
 	c := pd.completed.Load()
-	b.WriteString(fmt.Sprintf("[%d/%d]", c, pd.total))
+	b.WriteString(fmt.Sprintf("\033[32m[%d/%d]\033[0m", c, pd.total))
 	pd.w.Write([]byte(b.String()))
 }
 
@@ -250,24 +292,15 @@ func (pd *progressDisplay) renderFinal() {
 		return
 	}
 	// cursor is at global line after last render
-	for r := 0; r < pd.rows; r++ {
-		fmt.Fprintf(pd.w, "\033[A\033[K")
+	for r := 0; r < pd.rows+1; r++ {
+		fmt.Fprintf(pd.w, "\033[A\r\033[K")
 	}
-	fmt.Fprintf(pd.w, "\033[K")
+	fmt.Fprintf(pd.w, "\r\033[K")
 	c := pd.total
 	if cVal := pd.completed.Load(); cVal > 0 {
 		c = int(cVal)
 	}
-	fmt.Fprintf(pd.w, "\r[%d/%d] done\n\033[J", c, pd.total)
-}
-
-// test helper: creates display writing to buf with forced tty
-func newTestDisplay(workers, total int, w io.Writer, width int) *progressDisplay {
-	d := newProgressDisplay(workers, total)
-	d.tty = true
-	d.w = w
-	d.width = width
-	return d
+	fmt.Fprintf(pd.w, "\r\033[32m[%d/%d]\033[0m done\n\n\033[J", c, pd.total)
 }
 
 func (pd *progressDisplay) stop() {
@@ -296,7 +329,16 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// overridden in tests
 var termSize = func(fd uintptr) (int, int, error) {
-	return 80, 24, nil
+	var ws struct{ Row, Col, Xpixel, Ypixel uint16 }
+	_, _, errno := syscall.Syscall(
+		syscall.SYS_IOCTL,
+		fd,
+		uintptr(syscall.TIOCGWINSZ),
+		uintptr(unsafe.Pointer(&ws)),
+	)
+	if errno != 0 {
+		return 0, 0, errno
+	}
+	return int(ws.Col), int(ws.Row), nil
 }

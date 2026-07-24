@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 	"text/tabwriter"
 )
@@ -26,34 +25,14 @@ func init() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] < urls.txt\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
-
-		type flagInfo struct {
-			name  string
-			usage string
-			def   string
-		}
-
-		var flags []flagInfo
+		w := tabwriter.NewWriter(os.Stderr, 0, 0, 2, ' ', 0)
 		flag.VisitAll(func(f *flag.Flag) {
 			prefix := "--"
 			if len(f.Name) == 1 {
 				prefix = "-"
 			}
-			flags = append(flags, flagInfo{
-				name:  prefix + f.Name,
-				usage: f.Usage,
-				def:   f.DefValue,
-			})
+			fmt.Fprintf(w, "  %s\t%s\t(default %s)\n", prefix+f.Name, f.Usage, f.DefValue)
 		})
-
-		sort.Slice(flags, func(i, j int) bool {
-			return flags[i].name < flags[j].name
-		})
-
-		w := tabwriter.NewWriter(os.Stderr, 0, 0, 2, ' ', 0)
-		for _, f := range flags {
-			fmt.Fprintf(w, "  %s\t%s\t(default %s)\n", f.name, f.usage, f.def)
-		}
 		w.Flush()
 	}
 }

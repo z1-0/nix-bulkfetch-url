@@ -1,4 +1,3 @@
-<!-- prettier-ignore -->
 # nix-bulkfetch-url
 
 Fetch URLs, print hashes. No Nix store, parallel.
@@ -8,7 +7,7 @@ Fetch URLs, print hashes. No Nix store, parallel.
 - Configurable worker pool (default: 16 concurrent downloads)
 - Retries with exponential backoff (3 attempts by default)
 - Fail-fast mode to bail on first error
-- Zero dependencies—just stdlib, builds as a single static binary
+- Zero dependencies, single static binary
 
 ## Install
 
@@ -50,7 +49,7 @@ home.packages = [
 
 ## Dependencies
 
-The binary itself has no Go dependencies—statically linked. Archive unpacking uses external tools:
+The binary itself has no Go dependencies. It is statically linked. Archive unpacking uses external tools:
 
 | Format                | Tool               |
 | --------------------- | ------------------ |
@@ -109,7 +108,7 @@ cat urls.txt | nix-bulkfetch-url -j 8 --json
 
 ### Unpack and compute NAR hash
 
-Downloads each archive, extracts it, and computes a NAR hash on the unpacked directory—the same hash you'd put in a Nix derivation's `sha256` field.
+Downloads each archive, extracts it, and computes a NAR hash on the unpacked directory. That is the same hash you would put in a Nix derivation's `sha256` field.
 
 ```bash
 cat urls.txt | nix-bulkfetch-url --unpack

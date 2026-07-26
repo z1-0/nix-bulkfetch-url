@@ -38,10 +38,7 @@ func unpackWithSource(archivePath, destDir, sourceURL string) error {
 		return fmt.Errorf("unsupported archive format: %s", filepath.Base(sourceURL))
 	}
 
-	af, ok := archiveFormats[format]
-	if !ok {
-		return fmt.Errorf("unsupported archive format: %s", format)
-	}
+	af := archiveFormats[format]
 
 	return run(af.args[0], append(af.args[1:], archivePath, af.destFlag, destDir)...)
 }

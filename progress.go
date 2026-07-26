@@ -91,9 +91,6 @@ func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
 		displaySlots = numURLs
 	}
 	displaySlots = roundUpWorkers(displaySlots)
-	if displaySlots%2 != 0 {
-		displaySlots++
-	}
 	rows := displaySlots / 2
 	ws := make([]*workerState, displaySlots)
 	for i := range ws {

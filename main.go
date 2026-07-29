@@ -23,7 +23,7 @@ var (
 
 func init() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] < urls.txt\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: nix-bulkfetch-url [OPTIONS]\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		w := tabwriter.NewWriter(os.Stderr, 0, 0, 2, ' ', 0)
 		flag.VisitAll(func(f *flag.Flag) {

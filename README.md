@@ -2,6 +2,10 @@
 
 Fetch URLs, print hashes. No Nix store, parallel.
 
+<div align="center">
+  <img src="screenshot.webp" alt="screenshot">
+</div>
+
 ## Features
 
 - Configurable worker pool (default: 16 concurrent downloads)

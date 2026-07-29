@@ -40,7 +40,8 @@ func init() {
 func main() {
 	flag.Parse()
 
-	if len(os.Args) == 1 {
+	fi, err := os.Stdin.Stat()
+	if len(os.Args) == 1 && err == nil && (fi.Mode()&os.ModeCharDevice) != 0 {
 		flag.Usage()
 		os.Exit(0)
 	}

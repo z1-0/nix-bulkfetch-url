@@ -52,15 +52,6 @@ func (ws *workerState) fail(reason string) {
 	ws.err = reason
 }
 
-func (ws *workerState) done() {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
-	ws.url = ""
-	ws.err = ""
-	ws.downloaded = 0
-	ws.total = 0
-}
-
 func (ws *workerState) snapshot() workerState {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
@@ -73,16 +64,18 @@ func (ws *workerState) snapshot() workerState {
 }
 
 type progressDisplay struct {
-	workers   []*workerState
-	completed atomic.Int64
-	total     int64
-	tty       bool
-	rows      int
-	stopCh    chan struct{}
-	doneCh    chan struct{}
-	w         io.Writer
-	width     int
-	started   bool
+	workers     []*workerState
+	slotsExited []bool
+	exitMu      sync.Mutex
+	completed   atomic.Int64
+	total       int64
+	tty         bool
+	rows        int
+	stopCh      chan struct{}
+	doneCh      chan struct{}
+	w           io.Writer
+	width       int
+	started     bool
 }
 
 func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
@@ -99,8 +92,9 @@ func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
 	fi, err := os.Stderr.Stat()
 	tty := err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 	return &progressDisplay{
-		workers: ws,
-		total:   int64(numURLs),
+		workers:     ws,
+		slotsExited: make([]bool, displaySlots),
+		total:       int64(numURLs),
 		tty:     tty,
 		rows:    rows,
 		stopCh:  make(chan struct{}),
@@ -202,11 +196,10 @@ func visibleLen(s string) int {
 	return n
 }
 
-func (pd *progressDisplay) workerForURL(urlIdx int) *workerState {
-	if len(pd.workers) == 0 {
-		return nil
-	}
-	return pd.workers[urlIdx%len(pd.workers)]
+func (pd *progressDisplay) markExited(slot int) {
+	pd.exitMu.Lock()
+	pd.slotsExited[slot] = true
+	pd.exitMu.Unlock()
 }
 
 func (pd *progressDisplay) start(ctx context.Context) {
@@ -251,6 +244,17 @@ func (pd *progressDisplay) render() {
 	if colWidth < 5 {
 		colWidth = 5
 	}
+
+	active := make([]*workerState, 0, len(pd.workers))
+	pd.exitMu.Lock()
+	for i, w := range pd.workers {
+		if !pd.slotsExited[i] {
+			active = append(active, w)
+		}
+	}
+	pd.exitMu.Unlock()
+	activeRows := (len(active) + 1) / 2
+
 	var b strings.Builder
 	b.Grow(pd.width * (pd.rows + 1))
 	if pd.started {
@@ -259,25 +263,24 @@ func (pd *progressDisplay) render() {
 	pd.started = true
 	for r := 0; r < pd.rows; r++ {
 		b.WriteString("\r\033[K")
-		left := formatWorkerLine(pd.workers[r*2], colWidth)
-		right := formatWorkerLine(pd.workers[r*2+1], colWidth)
-		if left != "" && right != "" {
-			leftVis := visibleLen(left)
-			if leftVis > colWidth {
-				leftVis = colWidth
+		if r < activeRows {
+			left := formatWorkerLine(active[r*2], colWidth)
+			if r*2+1 < len(active) {
+				right := formatWorkerLine(active[r*2+1], colWidth)
+				leftVis := visibleLen(left)
+				if leftVis > colWidth {
+					leftVis = colWidth
+				}
+				gap := colWidth + 1 - leftVis
+				if gap < 1 {
+					gap = 1
+				}
+				b.WriteString(left)
+				b.WriteString(strings.Repeat(" ", gap))
+				b.WriteString(right)
+			} else {
+				b.WriteString(left)
 			}
-			gap := colWidth + 1 - leftVis
-			if gap < 1 {
-				gap = 1
-			}
-			b.WriteString(left)
-			b.WriteString(strings.Repeat(" ", gap))
-			b.WriteString(right)
-		} else if right != "" {
-			b.WriteString(strings.Repeat(" ", colWidth+1))
-			b.WriteString(right)
-		} else {
-			b.WriteString(left)
 		}
 		if r < pd.rows-1 {
 			b.WriteString("\n")

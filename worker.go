@@ -40,11 +40,12 @@ func WorkerPool(urls []string, opts Options) []Result {
 
 	display.start(ctx)
 
-	numWorkers := opts.Workers
-	for i := 0; i < numWorkers; i++ {
+	for slotIdx := range display.workers {
 		wg.Add(1)
-		go func() {
+		go func(slot int) {
+			ws := display.workers[slot]
 			defer wg.Done()
+			defer display.markExited(slot)
 			for idx := range ch {
 				select {
 				case <-ctx.Done():
@@ -52,15 +53,9 @@ func WorkerPool(urls []string, opts Options) []Result {
 				default:
 				}
 
-				ws := display.workerForURL(idx)
-				if ws != nil {
-					ws.start(urls[idx])
-				}
+				ws.start(urls[idx])
 				result := processURL(ctx, urls[idx], idx, opts, ws)
 				display.completed.Add(1)
-				if ws != nil {
-					ws.done()
-				}
 
 				mu.Lock()
 				results[idx] = result
@@ -69,7 +64,7 @@ func WorkerPool(urls []string, opts Options) []Result {
 				}
 				mu.Unlock()
 			}
-		}()
+		}(slotIdx)
 	}
 
 	for i := range urls {
@@ -107,9 +102,7 @@ func processURL(ctx context.Context, url string, index int, opts Options, ws *wo
 		lastErr = err
 	}
 
-	if ws != nil {
-		ws.fail(lastErr.Error())
-	}
+	ws.fail(lastErr.Error())
 	return Result{Index: index, URL: url, Error: lastErr}
 }
 
@@ -123,11 +116,8 @@ func tryFetch(ctx context.Context, url string, opts Options, ws *workerState) (s
 	dlCtx, cancel := context.WithTimeout(ctx, time.Duration(opts.Timeout)*time.Second)
 	defer cancel()
 
-	var onProgress progressFunc
-	if ws != nil {
-		onProgress = func(downloaded, total int64) {
-			ws.update(downloaded, total)
-		}
+	onProgress := func(downloaded, total int64) {
+		ws.update(downloaded, total)
 	}
 
 	archivePath := filepath.Join(tmpDir, "download")

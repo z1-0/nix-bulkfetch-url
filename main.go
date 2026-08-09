@@ -114,6 +114,7 @@ func outputResults(results []Result, jsonMode bool) {
 			item := jsonItem{URL: r.URL}
 			if r.Error != nil {
 				item.Error = r.Error.Error()
+				fmt.Fprintf(os.Stderr, "error: %s: %v\n", r.URL, r.Error)
 			} else {
 				item.Hash = r.Hash
 			}

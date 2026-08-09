@@ -95,12 +95,12 @@ func newProgressDisplay(numWorkers, numURLs int) *progressDisplay {
 		workers:     ws,
 		slotsExited: make([]bool, displaySlots),
 		total:       int64(numURLs),
-		tty:     tty,
-		rows:    rows,
-		stopCh:  make(chan struct{}),
-		doneCh:  make(chan struct{}),
-		w:       os.Stderr,
-		width:   termWidth(),
+		tty:         tty,
+		rows:        rows,
+		stopCh:      make(chan struct{}),
+		doneCh:      make(chan struct{}),
+		w:           os.Stderr,
+		width:       termWidth(),
 	}
 }
 

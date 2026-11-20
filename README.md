@@ -1,6 +1,6 @@
 # nix-bulkfetch-url
 
-Fetch URLs, print hashes. No Nix store, parallel.
+Fetch URLs and print their hashes in parallel, without touching the Nix store.
 
 <div align="center">
   <img src="screenshot.webp" alt="screenshot">
@@ -8,20 +8,20 @@ Fetch URLs, print hashes. No Nix store, parallel.
 
 ## Features
 
-- Configurable worker pool (default: 16 concurrent downloads)
-- Retries with exponential backoff (3 attempts by default)
-- Fail-fast mode to bail on first error
-- Zero dependencies, single static binary
+- Worker pool size set with `-j`, 16 concurrent downloads by default
+- Failed downloads retried 3 times with exponential backoff
+- `--fail-fast` aborts the run on the first error
+- One statically linked binary, no Go dependencies
 
 ## Install
 
-Run directly without installing:
+Run it without installing:
 
 ```bash
 nix run github:z1-0/nix-bulkfetch-url
 ```
 
-Or install permanently:
+Or install it into your profile:
 
 ```bash
 nix profile install github:z1-0/nix-bulkfetch-url
@@ -29,13 +29,13 @@ nix profile install github:z1-0/nix-bulkfetch-url
 
 ### As a flake input
 
-Add to your flake:
+Add it to your `flake.nix`:
 
 ```nix
 inputs.nix-bulkfetch-url.url = "github:z1-0/nix-bulkfetch-url";
 ```
 
-**NixOS system-wide** (in `configuration.nix`):
+On NixOS, add the package in `configuration.nix`:
 
 ```nix
 environment.systemPackages = [
@@ -43,7 +43,7 @@ environment.systemPackages = [
 ];
 ```
 
-**Home Manager** (in `home.nix`):
+With Home Manager, add it in `home.nix`:
 
 ```nix
 home.packages = [
@@ -53,7 +53,8 @@ home.packages = [
 
 ## Dependencies
 
-The binary itself has no Go dependencies. It is statically linked. Archive unpacking uses external tools:
+The binary has no Go dependencies and is statically linked. Unpacking shells out to
+these tools:
 
 | Format                | Tool               |
 | --------------------- | ------------------ |
@@ -70,11 +71,17 @@ The binary itself has no Go dependencies. It is statically linked. Archive unpac
 
 ## Usage
 
-Feed URLs via stdin, one per line. Lines starting with `#` and empty lines are ignored.
+`nix-bulkfetch-url` reads URLs from stdin, one per line: the same shape as a `wget -i`
+file or an IANA `text/uri-list` ([RFC 2483](https://www.rfc-editor.org/rfc/rfc2483)). Only
+`http://` and `https://` work. Blank lines and lines starting with `#` are skipped, and LF
+or CRLF both parse.
 
 ```bash
 echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 ```
+
+There are no positional arguments, so `nix-bulkfetch-url urls.txt` is an error. Pass the
+list through a pipe or a redirect (`< urls.txt`).
 
 ### Flags
 
@@ -85,16 +92,16 @@ echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 | `--format`    | `sri`    | Output format: `base16`, `base32`, `base64`, `sri`          |
 | `--unpack`    | `false`  | Unpack archive and compute NAR hash                         |
 | `--json`      | `false`  | Output as JSON                                              |
-| `--timeout`   | `300`    | Download timeout (seconds)                                  |
+| `--timeout`   | `300`    | Timeout for each download attempt (seconds)                 |
 | `--fail-fast` | `false`  | Exit on first error                                         |
 
 ### Exit codes
 
-| Code | Meaning                         |
-| ---- | ------------------------------- |
-| `0`  | All URLs succeeded              |
-| `1`  | Some failed, some succeeded     |
-| `2`  | Nothing succeeded (or no input) |
+| Code | Meaning                                   |
+| ---- | ----------------------------------------- |
+| `0`  | All URLs succeeded                        |
+| `1`  | Some failed, some succeeded               |
+| `2`  | Nothing succeeded, no input, or bad usage |
 
 ## Examples
 
@@ -104,18 +111,23 @@ echo "https://example.com/archive.tar.gz" | nix-bulkfetch-url
 echo "https://github.com/user/repo/archive/v1.0.0.tar.gz" | nix-bulkfetch-url
 ```
 
-### Hash multiple URLs from a file
+### Batch hash every URL in a file
 
 ```bash
-cat urls.txt | nix-bulkfetch-url -j 8 --json
+nix-bulkfetch-url -j 8 --json < urls.txt        # redirect
+cat urls.txt | nix-bulkfetch-url -j 8 --json    # pipe, identical
 ```
 
 ### Unpack and compute NAR hash
 
-Downloads each archive, extracts it, and computes a NAR hash on the unpacked directory. That is the same hash you would put in a Nix derivation's `sha256` field.
+`--unpack` downloads each archive, extracts it, and hashes the unpacked directory as a
+NAR, which is the hash you put in a Nix derivation's `sha256` field.
+
+The extractor comes from the archive extension in the URL path, so a URL like
+`.../download?id=42` fails with `unsupported archive format`.
 
 ```bash
-cat urls.txt | nix-bulkfetch-url --unpack
+nix-bulkfetch-url --unpack < urls.txt
 ```
 
 ### Pipe URLs from a script
@@ -127,12 +139,12 @@ grep -oP 'https://[^\s"]+\.tar\.gz' packages.nix | nix-bulkfetch-url --type blak
 ### JSON output for scripting
 
 ```bash
-cat urls.txt | nix-bulkfetch-url --json | jq '.[] | select(.error == null)'
+nix-bulkfetch-url --json < urls.txt | jq '.[] | select(.error == null)'
 ```
 
 ## How it works
 
-1. Reads URLs from stdin
-2. Downloads them concurrently using a pool of N workers
-3. For each URL: fetches to a temp directory, unpacks if `--unpack` is set, then hashes with `nix-hash`
-4. Prints one hash per line (or a JSON array with `--json`)
+1. Read URLs from stdin.
+2. Download them concurrently through a worker pool of N goroutines.
+3. For each URL: fetch into a temp directory, unpack when `--unpack` is set, then hash with `nix-hash`.
+4. Print one hash per line, or a JSON array with `--json`.
